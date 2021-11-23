@@ -1,0 +1,89 @@
+---
+title: "BC Insects Database"
+author: "Jimmy Liu"
+date: "22/11/2021"
+output: html_document
+---
+
+```{r setup, warning=F, echo=F}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(here))
+suppressPackageStartupMessages(library(tmap))
+suppressPackageStartupMessages(library(bcmaps))
+suppressPackageStartupMessages(library(bcdata))
+suppressPackageStartupMessages(library(viridis))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(data.table))
+```
+
+```{r global var, echo = F}
+specimen_data_dir <- here("data/bold_specimen_data/")
+```
+
+```{r load data, echo = F, warning = F}
+specimen_files <- list.files(specimen_data_dir)
+specimen_data <- map(specimen_files,
+										 ~fread(here(specimen_data_dir, .), sep = "\t", header = T))
+```
+
+```{r wrangle data, echo = F, warning = F}
+BC_specimen_data <- map(specimen_data, function(x) {
+	df <- x %>% 
+		select(class_name, order_name, genus_name, species_name, lat, lon, country, province_state) %>% 
+		filter(country == "Canada",
+					 province_state == "British Columbia",
+					 is.na(lat) == F,
+					 is.na(lon) == F) %>%
+		group_by(class_name, order_name, genus_name, species_name, province_state, lat, lon) %>% 
+		tally() %>% 
+		ungroup() %>% 
+		mutate(order_name= case_when(nchar(order_name) == 0 ~ class_name,
+																 T ~ order_name))
+	coords <- df %>% 
+		select(lat, lon) %>% 
+		distinct()
+	
+	region <- map2_chr(coords$lat, coords$lon, function(y, z) {
+			rd <- regional_districts()
+			polygon <- st_transform(rd, 2163)
+			point <- st_transform(st_sfc(st_point(c(z, y)), crs=4326),2163)
+			region <- polygon[which(st_intersects(point, polygon, sparse = F)),]$ADMIN_AREA_NAME
+			return(region[1])
+			})
+
+	df %>%
+		left_join(coords %>% 
+								mutate(region = region), by = c("lat", "lon"))
+})
+```
+
+```{r plot, echo = F, warning = F, message=F}
+p <- map(BC_specimen_data, function(x) {
+	# load bc map data
+	bc <- bc_bound()
+	rd <- regional_districts()
+	# map distribution to BC map data
+	rd <- rd %>% 
+		left_join(x %>% 
+								group_by(order_name, region) %>% 
+								tally(),
+							by = c("ADMIN_AREA_NAME" = "region"))
+	# get number of unique species
+	species <- length(unique(x$species_name) %>% subset(nchar(.) > 1))
+	# plot
+	p <- ggplot() +
+	geom_sf(data = bc) +
+	geom_sf(data = rd,
+					aes(fill = n)) +
+	scale_fill_viridis_c() +
+	labs(x = "Longitude",
+			 y = "Latitude",
+			 title = paste0(x$order_name[1], " (", species, " species)"),
+			 fill = "Count")
+})
+
+for (i in 1:length(p)) {
+	plot(p[[i]])
+}
+```
+
