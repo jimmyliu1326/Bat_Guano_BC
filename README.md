@@ -1,2 +1,2 @@
 # Bat_Guano_BC
-aaa
+This repository contains scripts used for metabarcoding project of BC bat guano.
