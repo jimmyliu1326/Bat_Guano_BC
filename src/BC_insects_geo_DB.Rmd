@@ -2,7 +2,12 @@
 title: "BC Insects Database"
 author: "Jimmy Liu"
 date: "22/11/2021"
-output: html_document
+output:
+  prettydoc::html_pretty:
+   theme: tactile
+knit: (function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs")
+  })
 ---
 
 ```{r setup, warning=F, echo=F}
@@ -14,6 +19,7 @@ suppressPackageStartupMessages(library(bcdata))
 suppressPackageStartupMessages(library(viridis))
 suppressPackageStartupMessages(library(plotly))
 suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(prettydoc))
 ```
 
 ```{r global var, echo = F}
@@ -26,7 +32,7 @@ specimen_data <- map(specimen_files,
 										 ~fread(here(specimen_data_dir, .), sep = "\t", header = T))
 ```
 
-```{r wrangle data, echo = F, warning = F}
+```{r wrangle data, echo = F, warning = F, message = F}
 BC_specimen_data <- map(specimen_data, function(x) {
 	df <- x %>% 
 		select(class_name, order_name, genus_name, species_name, lat, lon, country, province_state) %>% 
