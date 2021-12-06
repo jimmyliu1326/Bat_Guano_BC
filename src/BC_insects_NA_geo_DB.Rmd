@@ -20,6 +20,7 @@ suppressPackageStartupMessages(library(prettydoc))
 suppressPackageStartupMessages(library(rnaturalearth))
 suppressPackageStartupMessages(library(sf))
 suppressPackageStartupMessages(library(scales))
+suppressPackageStartupMessages(library(ggimage))
 ```
 
 ```{r global var, echo = F}
@@ -36,7 +37,7 @@ specimen_data <- map(specimen_files,
 ```
 
 ```{r wrangle data, echo = F, warning = F, message = F}
-BC_specimen_data <- map(specimen_data, function(x) {
+BC_specimen_data <- map_dfr(specimen_data, function(x) {
 	x %>% 
 		dplyr::select(class_name, order_name, genus_name, species_name, lat, lon, country, province_state) %>% 
 		filter(is.na(lat) == F,
@@ -44,9 +45,21 @@ BC_specimen_data <- map(specimen_data, function(x) {
 		group_by(class_name, order_name, genus_name, species_name, province_state, lat, lon) %>% 
 		tally() %>% 
 		ungroup() %>% 
-		mutate(order_name= case_when(nchar(order_name) == 0 ~ class_name,
-																 T ~ order_name))
-})
+		filter(nchar(order_name) != 0)
+}) %>% 
+	group_by(order_name) %>% 
+	nest() %>% 
+	arrange(order_name)
+
+specimen_images <- map_dfr(specimen_data, function(x) {
+	x %>% 
+		select(order_name, image_urls) %>% 
+		filter(nchar(order_name) != 0)
+}) %>% 
+	mutate(image_urls = if_else(is.na(image_urls) == T, "", image_urls)) %>% 
+	group_by(order_name) %>% 
+	arrange(order_name, desc(image_urls)) %>% 
+	slice(1)
 ```
 
 ```{r plot, echo = F, warning = F, message=F, fig.width = 8}
@@ -57,22 +70,25 @@ north_america <- ne_countries(scale = "medium",
 province_states <- st_as_sf(ne_states(c("united states of america",
 																 "canada")))
 
-p <- map(BC_specimen_data, function(x) {
+p <- pmap(list(BC_specimen_data$order_name, 
+										BC_specimen_data$data, 
+										specimen_images$image_urls), 
+							 function(x,y,z) {
 	# get number of unique species
-	species <- length(unique(x$species_name) %>% subset(nchar(.) > 1))
+	species <- length(unique(y$species_name) %>% subset(nchar(.) > 1))
 	
-	df <- x %>% 
-		group_by(province_state, order_name) %>% 
+	df <- y %>% 
+		group_by(province_state) %>% 
 		tally()
 	
 	# map distribution to province_states map data
 	province_states <- province_states %>% 
-		left_join(x %>%
-								group_by(order_name, province_state) %>%
+		left_join(y %>%
+								group_by(province_state) %>%
 								tally(),
 							by = c("name" = "province_state"))
 	# plot
-	ggplot() +
+	p <- ggplot() +
 	geom_sf(data = north_america) +
 	geom_sf(data = province_states,
 					aes(fill = n)) +
@@ -80,7 +96,7 @@ p <- map(BC_specimen_data, function(x) {
 	labs(x = "Longitude",
 			 y = "Latitude",
 			 fill = "Count",
-			 title = paste0("Distribution of ", x$order_name[1], " in North America"),
+			 title = paste0("Distribution of ", x, " in North America"),
 			 subtitle = paste0("Number of species: ", species)) +
 	coord_sf(xlim = c(-180, -50), 
 					 ylim = c(24.5, 81),
@@ -88,6 +104,14 @@ p <- map(BC_specimen_data, function(x) {
   theme_bw() +
 	theme(plot.title = element_text(hjust = 0.5),
 				plot.subtitle = element_text(hjust = 0.5))
+	
+	if (nchar(z) != 0) { 
+		p <- p + geom_image(aes(x = -155, y = 35, image = z), size = 0.3)
+	} else {
+		p <- p + geom_image(aes(x = -155, y = 35, image = here("images", paste0(x, ".jpg"))), size = 0.3)
+	}
+	
+	p
 })
 
 for (i in seq_along(1:length(p))) {
