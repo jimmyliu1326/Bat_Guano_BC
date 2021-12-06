@@ -1,0 +1,96 @@
+---
+title: "BC Insects Database"
+author: "Jimmy Liu"
+date: "22/11/2021"
+output:
+  prettydoc::html_pretty:
+   theme: cayman
+knit: (function(inputFile, encoding) {
+    rmarkdown::render(inputFile, encoding = encoding, output_dir = "../docs")
+  })
+---
+
+```{r setup, warning=F, echo=F}
+suppressPackageStartupMessages(library(tidyverse))
+suppressPackageStartupMessages(library(here))
+suppressPackageStartupMessages(library(viridis))
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(prettydoc))
+suppressPackageStartupMessages(library(rnaturalearth))
+suppressPackageStartupMessages(library(sf))
+suppressPackageStartupMessages(library(scales))
+```
+
+```{r global var, echo = F}
+specimen_data_dir <- here("data/bold_specimen_data/")
+```
+
+```{r load data, echo = F, warning = F}
+specimen_files <- list.files(specimen_data_dir)
+specimen_data <- map(specimen_files,
+										 ~fread(here(specimen_data_dir, .), 
+										 			 sep = "\t", 
+										 			 header = T,
+										 			 fill = T))
+```
+
+```{r wrangle data, echo = F, warning = F, message = F}
+BC_specimen_data <- map(specimen_data, function(x) {
+	x %>% 
+		dplyr::select(class_name, order_name, genus_name, species_name, lat, lon, country, province_state) %>% 
+		filter(is.na(lat) == F,
+					 is.na(lon) == F) %>%
+		group_by(class_name, order_name, genus_name, species_name, province_state, lat, lon) %>% 
+		tally() %>% 
+		ungroup() %>% 
+		mutate(order_name= case_when(nchar(order_name) == 0 ~ class_name,
+																 T ~ order_name))
+})
+```
+
+```{r plot, echo = F, warning = F, message=F, fig.width = 8}
+north_america <- ne_countries(scale = "medium",
+															returnclass = "sf") %>% 
+	filter(name %in% c("United States", "Canada", "Mexico"))
+
+province_states <- st_as_sf(ne_states(c("united states of america",
+																 "canada")))
+
+p <- map(BC_specimen_data, function(x) {
+	# get number of unique species
+	species <- length(unique(x$species_name) %>% subset(nchar(.) > 1))
+	
+	df <- x %>% 
+		group_by(province_state, order_name) %>% 
+		tally()
+	
+	# map distribution to province_states map data
+	province_states <- province_states %>% 
+		left_join(x %>%
+								group_by(order_name, province_state) %>%
+								tally(),
+							by = c("name" = "province_state"))
+	# plot
+	ggplot() +
+	geom_sf(data = north_america) +
+	geom_sf(data = province_states,
+					aes(fill = n)) +
+	scale_fill_viridis_c(labels = comma) +
+	labs(x = "Longitude",
+			 y = "Latitude",
+			 fill = "Count",
+			 title = paste0("Distribution of ", x$order_name[1], " in North America"),
+			 subtitle = paste0("Number of species: ", species)) +
+	coord_sf(xlim = c(-180, -50), 
+					 ylim = c(24.5, 81),
+					 expand = T) +
+  theme_bw() +
+	theme(plot.title = element_text(hjust = 0.5),
+				plot.subtitle = element_text(hjust = 0.5))
+})
+
+for (i in seq_along(1:length(p))) {
+	plot(p[[i]])
+}
+```
