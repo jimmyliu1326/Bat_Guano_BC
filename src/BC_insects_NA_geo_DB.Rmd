@@ -51,6 +51,7 @@ BC_specimen_data <- map_dfr(specimen_data, function(x) {
 	nest() %>% 
 	arrange(order_name)
 
+# get bug images for each order
 specimen_images <- map_dfr(specimen_data, function(x) {
 	x %>% 
 		select(order_name, image_urls) %>% 
@@ -63,13 +64,17 @@ specimen_images <- map_dfr(specimen_data, function(x) {
 ```
 
 ```{r plot, echo = F, warning = F, message=F, fig.width = 8}
+# get map sf
 north_america <- ne_countries(scale = "medium",
 															returnclass = "sf") %>% 
 	filter(name %in% c("United States", "Canada", "Mexico"))
 
 province_states <- st_as_sf(ne_states(c("united states of america",
-																 "canada")))
+																 "canada"))) %>% 
+	mutate(name = if_else(name == "Québec", "Quebec", name),
+				 name = if_else(name == "Yukon", "Yukon Territory", name))
 
+# iterate through each order to generate a map
 p <- pmap(list(BC_specimen_data$order_name, 
 										BC_specimen_data$data, 
 										specimen_images$image_urls), 
@@ -77,6 +82,7 @@ p <- pmap(list(BC_specimen_data$order_name,
 	# get number of unique species
 	species <- length(unique(y$species_name) %>% subset(nchar(.) > 1))
 	
+	# tally number of samples in each province/states
 	df <- y %>% 
 		group_by(province_state) %>% 
 		tally()
@@ -114,6 +120,7 @@ p <- pmap(list(BC_specimen_data$order_name,
 	p
 })
 
+# visualize the plots
 for (i in seq_along(1:length(p))) {
 	plot(p[[i]])
 }
